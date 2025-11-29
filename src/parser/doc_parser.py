@@ -5,8 +5,8 @@ import re
 from src.temporal.temporal_extractor import extract_temporal_expressions
 
 
-DATA_DIR = "/Users/mac2/University/Information Retrieval/Smart Doc System/archive"
-OUTPUT_DIR = "/Users/mac2/University/Information Retrieval/Smart Doc System/output"
+DATA_DIR = "/Users/mac2/University/Information Retrieval/Smart Doc System/smart-news-retrieval-/archive"
+OUTPUT_DIR = "/Users/mac2/University/Information Retrieval/Smart Doc System/smart-news-retrieval-/output"
 
 
 # ============================
@@ -149,7 +149,7 @@ def parse_reuters_file(file_path):
             "author_raw": author_raw,
             "date_raw": date_raw,
             "dateline_raw": dateline_raw,
-            "places": places
+            "places": places,
             "temporalExpressions": temporal_expressions
         }
 

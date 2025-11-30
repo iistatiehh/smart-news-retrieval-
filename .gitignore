@@ -14,3 +14,4 @@ src/*/__pycache__/
 /myenv1
 /reuters_documents.json
 /__pycache__/
+/data

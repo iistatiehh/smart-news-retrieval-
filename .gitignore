@@ -11,3 +11,6 @@ src/*/__pycache__/
 
 # Ignore large json outputs
 *.json
+/myenv1
+/reuters_documents.json
+/__pycache__/

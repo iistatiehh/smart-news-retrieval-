@@ -6,11 +6,16 @@ from elasticsearch import Elasticsearch
 from sentence_transformers import SentenceTransformer
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from dotenv import load_dotenv
+from pathlib import Path
+import os
 
+
+GROQ_API_KEY ="user's_groq_api_key_here"  # Replace with your actual GROQ API key
 # Configuration
 ES_HOST = "http://localhost:9200"
 INDEX_NAME = "news_reuters_docs"
-GROQ_API_KEY = "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"
+
 
 # Initialize clients
 es = Elasticsearch(ES_HOST, request_timeout=60)
@@ -18,7 +23,6 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
     temperature=0,
-    api_key=GROQ_API_KEY
 )
 
 app = FastAPI(title="Smart News Search & Chat API")

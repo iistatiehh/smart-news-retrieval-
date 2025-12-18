@@ -5,7 +5,7 @@
 
 from dotenv import load_dotenv
 from pathlib import Path
-GROQ_API_KEY ="use your key here"
+#GROQ_API_KEY ="use your key here"
 
  
 from elasticsearch import Elasticsearch

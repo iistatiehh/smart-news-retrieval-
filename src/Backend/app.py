@@ -11,7 +11,7 @@ from pathlib import Path
 import os
 
 
-GROQ_API_KEY ="user's_groq_api_key_here"  # Replace with your actual GROQ API key
+#GROQ_API_KEY ="user's_groq_api_key_here"  # Replace with your actual GROQ API key
 # Configuration
 ES_HOST = "http://localhost:9200"
 INDEX_NAME = "news_reuters_docs"

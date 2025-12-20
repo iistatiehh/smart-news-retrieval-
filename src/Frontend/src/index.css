@@ -1,0 +1,199 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 215 25% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 15%;
+
+    --primary: 215 60% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 15% 93%;
+    --secondary-foreground: 215 25% 25%;
+
+    --muted: 210 15% 95%;
+    --muted-foreground: 215 15% 50%;
+
+    --accent: 200 70% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 88%;
+    --input: 210 20% 92%;
+    --ring: 215 60% 45%;
+
+    --radius: 0.5rem;
+
+    /* Custom tokens */
+    --surface-elevated: 0 0% 100%;
+    --surface-sunken: 210 20% 96%;
+    --text-tertiary: 215 10% 60%;
+    --relevance-high: 145 60% 42%;
+    --relevance-medium: 45 85% 50%;
+    --relevance-low: 210 15% 70%;
+    --chip-geo: 200 70% 92%;
+    --chip-geo-text: 200 70% 35%;
+    --chip-time: 270 50% 92%;
+    --chip-time-text: 270 50% 35%;
+    --chat-user: 215 60% 45%;
+    --chat-assistant: 210 15% 95%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 220 20% 10%;
+    --foreground: 210 20% 95%;
+
+    --card: 220 20% 13%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 220 20% 13%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 215 70% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 20%;
+    --secondary-foreground: 210 20% 90%;
+
+    --muted: 220 15% 18%;
+    --muted-foreground: 215 15% 60%;
+
+    --accent: 200 70% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 22%;
+    --input: 220 15% 20%;
+    --ring: 215 70% 55%;
+
+    --surface-elevated: 220 20% 15%;
+    --surface-sunken: 220 20% 8%;
+    --text-tertiary: 215 10% 50%;
+    --chip-geo: 200 50% 20%;
+    --chip-geo-text: 200 70% 75%;
+    --chip-time: 270 40% 20%;
+    --chip-time-text: 270 50% 75%;
+    --chat-user: 215 70% 55%;
+    --chat-assistant: 220 15% 18%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .search-input-large {
+    @apply w-full px-6 py-4 text-lg bg-card border-2 border-border rounded-xl 
+           focus:border-primary focus:ring-2 focus:ring-primary/20 
+           transition-all duration-200 placeholder:text-muted-foreground;
+  }
+
+  .result-card {
+    @apply bg-card border border-border rounded-lg p-5 
+           hover:border-primary/40 hover:shadow-md 
+           transition-all duration-200 cursor-pointer;
+  }
+
+  .chip-geo {
+    @apply inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full
+           bg-[hsl(var(--chip-geo))] text-[hsl(var(--chip-geo-text))];
+  }
+
+  .chip-time {
+    @apply inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full
+           bg-[hsl(var(--chip-time))] text-[hsl(var(--chip-time-text))];
+  }
+
+  .relevance-bar {
+    @apply h-1.5 rounded-full bg-muted overflow-hidden;
+  }
+
+  .chat-bubble-user {
+    @apply bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-3;
+  }
+
+  .chat-bubble-assistant {
+    @apply bg-[hsl(var(--chat-assistant))] text-foreground rounded-2xl rounded-bl-md px-4 py-3;
+  }
+
+  .nav-link {
+    @apply px-4 py-2 text-sm font-medium text-muted-foreground 
+           hover:text-foreground hover:bg-secondary/50 rounded-lg 
+           transition-colors duration-150;
+  }
+
+  .nav-link-active {
+    @apply text-primary bg-primary/10;
+  }
+
+  .filter-section {
+    @apply p-4 border-b border-border;
+  }
+
+  .stat-card {
+    @apply bg-card border border-border rounded-lg p-6;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out forwards;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+}

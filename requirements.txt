@@ -1,0 +1,28 @@
+# ===== Backend / API =====
+fastapi==0.116.1
+uvicorn==0.33.0
+python-dotenv
+requests
+
+# ===== Elasticsearch =====
+elasticsearch==8.11.0
+
+# ===== Embeddings / NLP =====
+torch==2.2.2
+sentence-transformers==3.2.1
+transformers==4.41.2
+huggingface-hub
+tokenizers==0.19.1
+tqdm
+
+# ===== Data (Python 3.8 compatible) =====
+numpy==1.24.4
+pandas==1.5.3
+scikit-learn==1.3.2
+
+# ===== LLM / RAG (Python 3.8 compatible) =====
+langchain==0.2.17
+langchain-community==0.2.16
+langchain-core==0.2.43
+langchain-groq==0.1.6
+langchain-text-splitters==0.2.4

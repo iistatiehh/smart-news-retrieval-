@@ -1,13 +1,17 @@
- 
+  
 # %pip install langchain langchain-community langchain-groq elasticsearch sentence-transformers
 # %pip install langchain.schema
 
 
+  
+import os
 from dotenv import load_dotenv
-from pathlib import Path
-#GROQ_API_KEY ="use your key here"
+load_dotenv()
 
- 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+
+  
 from elasticsearch import Elasticsearch
 
 ES_INDEX = "news_reuters_docs"
@@ -20,7 +24,7 @@ es = Elasticsearch(
 assert es.ping(), "Elasticsearch not reachable"
 
 
- 
+  
 from typing import List, Any
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -82,7 +86,7 @@ class ElasticsearchHybridRetriever(BaseRetriever):
             )
         return docs
 
- 
+  
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -138,14 +142,14 @@ Documents:
     ]
 )
 
- 
+  
 def format_docs(docs):
     return "\n\n".join(
         f"{d.metadata['title']} ({d.metadata['date']})\n{d.page_content[:1200]}"
         for d in docs
     )
 
- 
+  
 # Conversation memory storage
 conversation_history = []
 last_retrieved_docs = []  # Store documents from the last retrieval
@@ -265,7 +269,7 @@ def show_memory():
         print(f"A: {turn['answer'][:200]}...")  # Show first 200 chars
     print("=" * 30)
 
- 
+  
 print("Turn 1:")
 print(chatbot("tell me about NATIONAL AVERAGE PRICES FOR FARMER-OWNED RESERVE"))
 print("\n" + "="*80 + "\n")
@@ -277,7 +281,7 @@ print("\n" + "="*80 + "\n")
 # Show conversation history
 show_memory()
 
- 
+  
 # Example: Start a new conversation
 clear_memory()
 
@@ -285,23 +289,8 @@ question = "What economic events affected Japan in the late 1990s?"
 answer = chatbot(question)
 print(answer)
 
- 
+  
 # Continue the conversation
 follow_up = "What were the consequences of those events?"
 answer = chatbot(follow_up)
 print(answer)
-
- 
-print(chatbot("tell me about NATIONAL AVERAGE PRICES FOR FARMER-OWNED RESERVE"))
-print("------------------------------------------------------------------------------\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\")
-print(chatbot("Summarize that one in two sentences"))
-
- 
-question = "What economic events affected Japan in the late 1990s?"
-question = "tell me about NATIONAL AVERAGE PRICES FOR FARMER-OWNED RESERVE"
-
-answer = chatbot(question)
-print(answer)
-
-
-

@@ -1,3 +1,4 @@
+ 
 # %pip install elasticsearch sentence-transformers
 from elasticsearch import Elasticsearch, helpers
 from sentence_transformers import SentenceTransformer
@@ -14,6 +15,10 @@ es = Elasticsearch(
     max_retries=3,
     retry_on_timeout=True
 )
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+
+ 
 
 # Add this to clean up old indices
 print("Cleaning up...")
@@ -158,7 +163,6 @@ es.cluster.health(wait_for_status='yellow', timeout='30s')
  
 import json, time, re
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
 
 file_path = r"C:\Users\asus\Desktop\NewsRetrival\smart-news-retrieval-\output\reuters_full.json"
 
@@ -200,7 +204,6 @@ for i in range(0, len(documents), batch_size):
         temporal = doc.get("temporalExpressions", [])
         georefs = doc.get("georeferences", [])
 
-        # Fix authors extraction - properly handle nested objects
         authors = []
         for author in doc.get("authors", []):
             if author:
@@ -210,7 +213,6 @@ for i in range(0, len(documents), batch_size):
                     "email": author.get("email", "")
                 })
 
-        # Fix geopoints extraction - properly handle nested objects
         geopoints = []
         for g in doc.get("geopoints", []):
             if g and g.get("location"):
@@ -272,49 +274,179 @@ print(f"\nTotal indexed: {total_indexed} documents successfully.")
 es.indices.refresh(index=INDEX_NAME)
 
  
-def hybrid_search(query, top_k=10):
+def hybrid_search(query, user_location=None, temporal_filter=None, top_k=10):
+    """
+    Enhanced hybrid search with fuzzy matching, recency boosting, and location-aware ranking.
+    
+    Args:
+        query: Search query string
+        user_location: Dict with 'lat' and 'lon' for geo-proximity ranking (optional)
+        temporal_filter: Dict with 'start' and 'end' dates for temporal filtering (optional)
+        top_k: Number of results to return
+    """
     query_vector = model.encode(query).tolist()
     
-    # lexical search on title and content
-    lexical_query = {
-        "multi_match": {
-            "query": query,
-            "fields": ["title^3", "content"],
-            "type": "best_fields"
-        }
+    # Build the base query with function_score for recency and location boosting
+    query_body = {
+        "size": top_k,
+        "query": {
+            "function_score": {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "multi_match": {
+                                    "query": query,
+                                    "fields": ["title^3", "content"],
+                                    "type": "best_fields",
+                                    "fuzziness": "AUTO",  # Handles typos (1-2 char edits)
+                                    "prefix_length": 2,   # First 2 chars must match exactly
+                                    "max_expansions": 50  # Limit fuzzy term expansions
+                                }
+                            }
+                        ]
+                    }
+                },
+                "functions": [
+                    # Recency boost - exponential decay favoring recent documents
+                    {
+                        "exp": {
+                            "date": {
+                                "origin": "now",
+                                "scale": "90d",    # Documents 90 days old get 50% weight
+                                "offset": "7d",    # No decay for documents within 7 days
+                                "decay": 0.5
+                            }
+                        },
+                        "weight": 2.0  # Increase importance of recency
+                    }
+                ],
+                "score_mode": "sum",      # Add function scores together
+                "boost_mode": "multiply"  # Multiply with query score
+            }
+        },
+        "knn": [
+            {
+                "field": "title_vector",
+                "query_vector": query_vector,
+                "k": top_k,
+                "num_candidates": 100,
+                "boost": 2.0  # Title vectors weighted higher
+            },
+            {
+                "field": "content_chunks.vector",
+                "query_vector": query_vector,
+                "k": top_k,
+                "num_candidates": 100,
+                "boost": 1.0
+            }
+        ]
     }
     
-    # Use kNN for faster HNSW vector search
+    # Add geo-proximity boost if user location is provided
+    if user_location and "lat" in user_location and "lon" in user_location:
+        query_body["query"]["function_score"]["functions"].append({
+            "gauss": {
+                "geo_location": {
+                    "origin": {
+                        "lat": user_location["lat"],
+                        "lon": user_location["lon"]
+                    },
+                    "scale": "200km",   # Documents 200km away get 50% weight
+                    "offset": "50km",   # No decay within 50km
+                    "decay": 0.5
+                }
+            },
+            "weight": 1.5  # Adjust importance of location proximity
+        })
+    
+    # Add temporal range filter if provided
+    if temporal_filter and "start" in temporal_filter and "end" in temporal_filter:
+        query_body["query"]["function_score"]["query"]["bool"]["filter"] = [
+            {
+                "range": {
+                    "date": {
+                        "gte": temporal_filter["start"],
+                        "lte": temporal_filter["end"]
+                    }
+                }
+            }
+        ]
+    
+    # Execute search
     response = es.search(
         index=INDEX_NAME,
-        body={
-            "size": top_k,
-            "query": lexical_query,
-            "knn": [
-                {
-                    "field": "title_vector",
-                    "query_vector": query_vector,
-                    "k": top_k,
-                    "num_candidates": 100
-                },
-                {
-                    "field": "content_chunks.vector",  # Change from content_vector
-                    "query_vector": query_vector,
-                    "k": top_k,
-                    "num_candidates": 100
-                }
-            ]
-        },
+        body=query_body,
         request_timeout=30
     )
     
-    return [hit["_source"]["title"] for hit in response["hits"]["hits"]]
+    # Return results with full metadata
+    results = []
+    for hit in response["hits"]["hits"]:
+        results.append({
+            "title": hit["_source"]["title"],
+            "score": hit["_score"],
+            "date": hit["_source"].get("date"),
+            "geo_location": hit["_source"].get("geo_location"),
+            "places": hit["_source"].get("places", []),
+            "authors": hit["_source"].get("authors", []),
+            "content_preview": hit["_source"]["content"][:200] + "..."  # First 200 chars
+        })
+    
+    return results
 
-# test
-print("\nTesting search with HNSW...")
+
+# Test cases demonstrating all features
+print("\n=== Test 1: Basic search ===")
 results = hybrid_search("banking crisis")
 print(f"Found {len(results)} results:")
-for i, title in enumerate(results, 1):
-    print(f"{i}. {title}")
+for i, result in enumerate(results, 1):
+    print(f"{i}. {result['title']} (score: {result['score']:.2f})")
+
+print("\n=== Test 2: Fuzzy search (with typo) ===")
+results = hybrid_search("bankng crsis")  # Intentional typos
+print(f"Found {len(results)} results with typos corrected:")
+for i, result in enumerate(results[:3], 1):
+    print(f"{i}. {result['title']}")
+
+print("\n=== Test 3: Location-aware search ===")
+london_location = {"lat": 51.5074, "lon": -0.1278}
+results = hybrid_search("banking crisis", user_location=london_location)
+print(f"Found {len(results)} results near London:")
+for i, result in enumerate(results[:3], 1):
+    location = result.get('geo_location', 'N/A')
+    print(f"{i}. {result['title']}")
+    print(f"   Location: {location}")
+
+print("\n=== Test 4: Temporal search (1987 documents) ===")
+temporal_filter = {
+    "start": "1987-01-01",
+    "end": "1987-12-31"
+}
+results = hybrid_search("banking", temporal_filter=temporal_filter)
+print(f"Found {len(results)} results from 1987:")
+for i, result in enumerate(results[:3], 1):
+    print(f"{i}. {result['title']}")
+    print(f"   Date: {result.get('date', 'N/A')}")
+
+print("\n=== Test 5: Combined spatio-temporal query ===")
+# Search for German news near Hamburg in March 1987
+hamburg_location = {"lat": 53.5511, "lon": 9.9937}
+march_1987 = {
+    "start": "1987-03-01",
+    "end": "1987-03-31"
+}
+results = hybrid_search(
+    query="Germany inflation", 
+    user_location=hamburg_location,
+    temporal_filter=march_1987,
+    top_k=5
+)
+print(f"Found {len(results)} German news near Hamburg in March 1987:")
+for i, result in enumerate(results, 1):
+    print(f"{i}. {result['title']}")
+    print(f"   Date: {result.get('date', 'N/A')}")
+    print(f"   Places: {', '.join(result.get('places', []))}")
+    print()
 
 

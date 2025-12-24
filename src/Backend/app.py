@@ -8,12 +8,15 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 from pathlib import Path
+from functools import lru_cache  # added for map feature
+import requests  # added for map feature
 import os
 
-GROQ_API_KEY = "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"
-# Configuration
-ES_HOST = "http://localhost:9200"
-INDEX_NAME = "news_reuters_docs"
+load_dotenv()
+GROQ_API_KEY ="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"
+#GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
+INDEX_NAME = os.getenv("ES_INDEX", "news_reuters_docs")
 
 # Initialize clients
 es = Elasticsearch(ES_HOST, request_timeout=60)
@@ -26,7 +29,6 @@ llm = ChatGroq(
 
 app = FastAPI(title="Smart News Search & Chat API")
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,7 +41,7 @@ app.add_middleware(
 sessions = {}
 
 # ============================================================================
-# PYDANTIC MODELS - BACKWARD COMPATIBLE
+# PYDANTIC MODELS
 # ============================================================================
 
 class GeoLocation(BaseModel):
@@ -51,10 +53,10 @@ class TemporalFilter(BaseModel):
     end: str
 
 class QueryRequest(BaseModel):
-    query: str  # KEPT SAME - backward compatible
+    query: str
     top_k: int = 10
-    user_location: Optional[GeoLocation] = None  # Optional - won't break old requests
-    temporal_filter: Optional[TemporalFilter] = None  # Optional
+    user_location: Optional[GeoLocation] = None
+    temporal_filter: Optional[TemporalFilter] = None
 
 class ChatMessage(BaseModel):
     role: str
@@ -64,7 +66,7 @@ class ChatRequest(BaseModel):
     query: str
     session_id: str
     use_memory: bool = True
-    user_location: Optional[GeoLocation] = None  # Optional - won't break old requests
+    user_location: Optional[GeoLocation] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -121,12 +123,19 @@ Documents:
 """)
 ])
 
+# added for map feature - summarizes news at a location
+GEO_SUMMARY_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", "You are a news analyst. Summarize briefly what is happening in the given location "
+               "based ONLY on the provided news content. Use 1-2 concise sentences."),
+    ("human", "Location: {location}\n\nArticles:\n{articles}\n\nSummary:")
+])
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
 def format_docs(docs):
-    """Format documents for the LLM context - emphasize ranking."""
+    """Format documents for the LLM context"""
     formatted = []
     for i, d in enumerate(docs, 1):
         ranking_marker = ""
@@ -143,27 +152,48 @@ def format_docs(docs):
         )
     return "\n\n---\n\n".join(formatted)
 
+# added for map feature - converts place names to coordinates
+@lru_cache(maxsize=128)
+def geocode_place(place: str):
+    """Convert place name to lat/lon using OpenStreetMap"""
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": place, "format": "json", "limit": 1},
+            headers={"User-Agent": "smart-news-ir"},
+            timeout=5
+        )
+        if r.status_code != 200 or not r.json():
+            return None
+        return {"lat": float(r.json()[0]["lat"]), "lon": float(r.json()[0]["lon"])}
+    except:
+        return None
+
+# added for map feature - creates summary for each location
+def summarize_location(location: str, docs: List[dict]) -> str:
+    """Generate AI summary of what's happening at a location"""
+    articles_text = "\n\n".join(
+        f"- {d['title']} ({d['date']}): {d['content'][:1000]}" for d in docs[:5]
+    )
+    prompt = GEO_SUMMARY_PROMPT.invoke({"location": location, "articles": articles_text})
+    summary = llm.invoke(prompt).content.strip()
+    return summary
+
 def hybrid_search(
     query: str, 
     user_location: Optional[Dict[str, float]] = None,
     temporal_filter: Optional[Dict[str, str]] = None,
     top_k: int = 10
 ):
-    """
-    Enhanced hybrid search with fuzzy matching, recency boosting, and location-aware ranking.
-    FIXED: Content matching works even when title is unrelated.
-    FIXED: Recency doesn't kill old documents (for historical news corpus).
-    FIXED: Query cleaning to remove noise words.
-    FIXED: Better phrase detection for multi-word entities.
-    """
-    # Clean query - remove common question words that don't help search
+    """Enhanced hybrid search with fuzzy matching, recency, and location awareness"""
+    
+    # clean query - remove noise words
     noise_words = ['tell me about', 'what did', 'what', 'who', 'when', 'where', 'why', 'how', 'please', 'can you', 'could you', 'i want to know']
     cleaned_query = query.lower()
     for noise in noise_words:
         cleaned_query = cleaned_query.replace(noise, '')
-    cleaned_query = ' '.join(cleaned_query.split())  # Remove extra spaces
+    cleaned_query = ' '.join(cleaned_query.split())
     
-    # Use cleaned query if significantly different
     search_query = cleaned_query if len(cleaned_query) < len(query) * 0.7 else query
     print(f"[SEARCH] Original: '{query}'")
     if search_query != query:
@@ -171,7 +201,6 @@ def hybrid_search(
     
     query_vector = model.encode(search_query).tolist()
     
-    # Build function_score query with STRONG phrase matching
     query_body = {
         "size": top_k,
         "query": {
@@ -179,43 +208,43 @@ def hybrid_search(
                 "query": {
                     "bool": {
                         "should": [
-                            # HIGHEST PRIORITY: Exact phrase in content (MASSIVE BOOST)
+                            # exact phrase in content
                             {
                                 "match_phrase": {
                                     "content": {
                                         "query": search_query,
-                                        "boost": 50.0,  # INCREASED from 10 to 50!
+                                        "boost": 50.0,
                                         "slop": 3
                                     }
                                 }
                             },
-                            # HIGH PRIORITY: Phrase in title
+                            # phrase in title
                             {
                                 "match_phrase": {
                                     "title": {
                                         "query": search_query,
-                                        "boost": 75.0,  # INCREASED from 15 to 75!
+                                        "boost": 75.0,
                                         "slop": 3
                                     }
                                 }
                             },
-                            # MEDIUM: Term match in content
+                            # fuzzy match in content
                             {
                                 "match": {
                                     "content": {
                                         "query": search_query,
-                                        "boost": 2.0,  # Slight increase
+                                        "boost": 2.0,
                                         "fuzziness": "AUTO",
                                         "operator": "and"
                                     }
                                 }
                             },
-                            # MEDIUM: Term match in title
+                            # fuzzy match in title
                             {
                                 "match": {
                                     "title": {
                                         "query": search_query,
-                                        "boost": 3.0,  # Slight increase
+                                        "boost": 3.0,
                                         "fuzziness": "AUTO"
                                     }
                                 }
@@ -225,21 +254,21 @@ def hybrid_search(
                     }
                 },
                 "functions": [
-                    # FIXED: Recency boost with MUCH longer scale for historical data
+                    # recency boost for historical data
                     {
                         "gauss": {
                             "date": {
-                                "origin": "1987-03-01",  # Center on your data's timeframe
-                                "scale": "365d",          # 1 year scale
+                                "origin": "1987-03-01",
+                                "scale": "365d",
                                 "offset": "30d",
                                 "decay": 0.5
                             }
                         },
-                        "weight": 0.5  # REDUCED - don't let recency dominate phrase matches
+                        "weight": 0.5
                     }
                 ],
                 "score_mode": "sum",
-                "boost_mode": "sum"  # Changed from multiply to sum - less aggressive
+                "boost_mode": "sum"
             }
         },
         "knn": [
@@ -248,19 +277,19 @@ def hybrid_search(
                 "query_vector": query_vector,
                 "k": top_k,
                 "num_candidates": 100,
-                "boost": 1.0  # REDUCED - don't let vectors dominate phrase matches
+                "boost": 1.0
             },
             {
                 "field": "content_chunks.vector",
                 "query_vector": query_vector,
                 "k": top_k,
                 "num_candidates": 100,
-                "boost": 0.5  # REDUCED
+                "boost": 0.5
             }
         ]
     }
     
-    # Add geo-proximity boost if location provided
+    # add geo boost if user location provided
     if user_location and "lat" in user_location and "lon" in user_location:
         query_body["query"]["function_score"]["functions"].append({
             "gauss": {
@@ -274,10 +303,10 @@ def hybrid_search(
                     "decay": 0.5
                 }
             },
-            "weight": 1.2  # Reduced so it doesn't overwhelm content matching
+            "weight": 1.2
         })
     
-    # Add temporal filter if provided
+    # add time filter if provided
     if temporal_filter and "start" in temporal_filter and "end" in temporal_filter:
         query_body["query"]["function_score"]["query"]["bool"]["filter"] = [
             {
@@ -328,7 +357,7 @@ def hybrid_search(
         return []
 
 def rewrite_query_with_context(question: str, history: List[dict]) -> str:
-    """Rewrite query using conversation history."""
+    """Rewrite query using conversation history"""
     if not history:
         return question
     
@@ -346,7 +375,7 @@ def rewrite_query_with_context(question: str, history: List[dict]) -> str:
     return rewritten
 
 # ============================================================================
-# API ENDPOINTS - BACKWARD COMPATIBLE
+# API ENDPOINTS
 # ============================================================================
 
 @app.get("/")
@@ -363,17 +392,13 @@ def read_root():
 
 @app.post("/autocomplete")
 def autocomplete(request: QueryRequest):
-    """
-    BACKWARD COMPATIBLE - uses 'query' field like before
-    Autocomplete endpoint - starts suggesting after 3 characters.
-    """
+    """Autocomplete suggestions after 3 characters"""
     try:
-        query = request.query  # KEPT SAME
+        query = request.query
         top_k = request.top_k
         
-        # Only suggest after 3 characters
         if len(query) < 3:
-            return {"query": query, "results": []}  # KEPT SAME response format
+            return {"query": query, "results": []}
         
         response = es.search(
             index=INDEX_NAME,
@@ -393,7 +418,7 @@ def autocomplete(request: QueryRequest):
         )
         
         results = [hit["_source"]["title"] for hit in response["hits"]["hits"]]
-        return {"query": query, "results": results}  # KEPT SAME response format
+        return {"query": query, "results": results}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -401,8 +426,8 @@ def autocomplete(request: QueryRequest):
 @app.post("/search")
 def search_documents(request: QueryRequest):
     """
-    BACKWARD COMPATIBLE - all new fields are optional
-    Enhanced search with fuzzy matching, recency, and location awareness.
+    Enhanced search with map feature
+    Returns documents + geo_points for map visualization
     """
     try:
         query = request.query
@@ -410,7 +435,6 @@ def search_documents(request: QueryRequest):
         user_location = request.user_location.dict() if request.user_location else None
         temporal_filter = request.temporal_filter.dict() if request.temporal_filter else None
         
-        # Use the unified hybrid_search function (no duplication!)
         docs = hybrid_search(
             query=query,
             user_location=user_location,
@@ -418,10 +442,22 @@ def search_documents(request: QueryRequest):
             top_k=top_k
         )
         
-        # Format response
+        # modified - added map feature: group docs by location
+        geo_groups: Dict[str, List[dict]] = {}
         documents = []
+        
         for doc in docs:
-            documents.append({
+            # extract place from doc
+            place = None
+            if doc.get("places") and len(doc["places"]) > 0:
+                place = doc["places"][0]
+            elif doc.get("dateline"):
+                place = doc["dateline"].split(",")[0]
+            
+            # geocode the place
+            geo = geocode_place(place) if place else None
+            
+            formatted_doc = {
                 "id": doc.get("id", ""),
                 "score": doc["score"],
                 "title": doc["title"],
@@ -438,13 +474,37 @@ def search_documents(request: QueryRequest):
                 "temporalExpressions": doc.get("temporalExpressions", []),
                 "georeferences": doc.get("georeferences", []),
                 "geopoints": doc.get("geopoints", []),
-                "geo_location": doc.get("geo_location")
+                "geo_location": geo,
+                "place": place
+            }
+            documents.append(formatted_doc)
+            
+            # group by location for map
+            if place and geo:
+                geo_groups.setdefault(place, []).append(formatted_doc)
+        
+        # modified - added map feature: create geo_points with summaries
+        geo_points = []
+        for place, items in geo_groups.items():
+            geo = items[0]["geo_location"]
+            latest_date = max((d["date"] for d in items if d["date"]), default="")
+            summary = summarize_location(place, items)
+            
+            geo_points.append({
+                "lat": geo["lat"],
+                "lon": geo["lon"],
+                "label": place,
+                "count": len(items),
+                "latest_date": latest_date,
+                "summary": summary,
+                "documents": items
             })
         
         return {
             "query": query,
             "total": len(documents),
-            "documents": documents
+            "documents": documents,
+            "geo_points": geo_points  # added for map feature
         }
     
     except Exception as e:
@@ -452,14 +512,14 @@ def search_documents(request: QueryRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
-    """BACKWARD COMPATIBLE - user_location is optional"""
+    """Chat with conversation memory"""
     try:
         session_id = request.session_id
         query = request.query
         use_memory = request.use_memory
         user_location = request.user_location.dict() if request.user_location else None
         
-        # Initialize session
+        # initialize session
         if session_id not in sessions:
             sessions[session_id] = {
                 "history": [],
@@ -468,11 +528,11 @@ def chat(request: ChatRequest):
         
         session = sessions[session_id]
         
-        # Detect follow-up questions
+        # detect follow-up questions
         follow_up_keywords = ["that", "it", "those", "these", "this", "summarize", "explain", "tell me more"]
         is_follow_up = any(kw in query.lower() for kw in follow_up_keywords) and len(query.split()) < 15
         
-        # Rewrite query if needed
+        # rewrite query if needed
         search_query = query
         query_rewritten = None
         if use_memory and session["history"] and is_follow_up:
@@ -480,7 +540,7 @@ def chat(request: ChatRequest):
             query_rewritten = search_query
             print(f"[CHAT] Query rewritten: '{query}' → '{search_query}'")
         
-        # Retrieve documents
+        # retrieve documents
         if is_follow_up and session["last_docs"]:
             print(f"[CHAT] Reusing {len(session['last_docs'])} cached documents")
             docs = session["last_docs"]
@@ -493,7 +553,6 @@ def chat(request: ChatRequest):
             )
             session["last_docs"] = docs
             
-            # DEBUG: Show what was retrieved
             print(f"[CHAT] Retrieved {len(docs)} documents:")
             for i, doc in enumerate(docs[:5], 1):
                 print(f"  {i}. {doc['title'][:80]} (score: {doc['score']:.2f})")
@@ -508,10 +567,9 @@ def chat(request: ChatRequest):
                 documents_used=[]
             )
         
-        # Format context
+        # format context
         context = format_docs(docs)
         
-        # DEBUG: Print what context is being sent to LLM
         print(f"\n[CHAT DEBUG] Context being sent to LLM:")
         print(f"Number of docs: {len(docs)}")
         for i, doc in enumerate(docs[:3], 1):
@@ -520,7 +578,7 @@ def chat(request: ChatRequest):
         print(context[:500])
         print("...\n")
         
-        # Format history
+        # format history
         history_text = ""
         if use_memory and session["history"]:
             history_text = "\n".join([
@@ -528,7 +586,7 @@ def chat(request: ChatRequest):
                 for turn in session["history"][-3:]
             ])
         
-        # Generate response
+        # generate response
         messages = CHAT_PROMPT.invoke({
             "question": query,
             "context": context,
@@ -538,14 +596,14 @@ def chat(request: ChatRequest):
         response = llm.invoke(messages)
         answer = response.content
         
-        # Store in session
+        # store in session
         if use_memory:
             session["history"].append({
                 "question": query,
                 "answer": answer
             })
         
-        # Keep only last 10 turns
+        # keep only last 10 turns
         if len(session["history"]) > 10:
             session["history"] = session["history"][-10:]
         
@@ -566,7 +624,7 @@ def chat(request: ChatRequest):
 
 @app.delete("/clear_session/{session_id}")
 def clear_session(session_id: str):
-    """Clear conversation history for a session."""
+    """Clear conversation history"""
     if session_id in sessions:
         del sessions[session_id]
         return {"message": f"Session {session_id} cleared"}
@@ -574,7 +632,7 @@ def clear_session(session_id: str):
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint."""
+    """Check if service is running"""
     es_status = es.ping()
     return {
         "status": "healthy" if es_status else "unhealthy",

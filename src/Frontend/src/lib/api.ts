@@ -1,7 +1,11 @@
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-// Types matching backend Pydantic models
+/* =========================
+   Types matching backend
+   ========================= */
+
 export interface AutocompleteRequest {
   query: string;
   top_k?: number;
@@ -15,6 +19,13 @@ export interface AutocompleteResponse {
 export interface SearchRequest {
   query: string;
   top_k?: number;
+}
+
+/* 🔹 NEW: Geo summary point for maps */
+export interface GeoSummaryPoint {
+  lat: number;
+  lon: number;
+  count: number;
 }
 
 export interface SearchDocument {
@@ -41,6 +52,9 @@ export interface SearchResponse {
   query: string;
   total: number;
   documents: SearchDocument[];
+
+  /* 🔹 NEW (SAFE – optional) */
+  geo_summary?: GeoSummaryPoint[];
 }
 
 export interface ChatRequest {
@@ -60,6 +74,10 @@ export interface HealthResponse {
   status: "healthy" | "unhealthy";
   elasticsearch: "connected" | "disconnected";
 }
+
+/* =========================
+   API Service
+   ========================= */
 
 class ApiService {
   private baseUrl: string;
@@ -81,30 +99,38 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
+      const error = await response
+        .json()
+        .catch(() => ({ detail: "Unknown error" }));
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
 
     return response.json();
   }
 
-  // Autocomplete endpoint for search suggestions
-  async autocomplete(query: string, topK: number = 5): Promise<AutocompleteResponse> {
+  /* 🔹 Autocomplete */
+  async autocomplete(
+    query: string,
+    topK: number = 5
+  ): Promise<AutocompleteResponse> {
     return this.request<AutocompleteResponse>("/autocomplete", {
       method: "POST",
       body: JSON.stringify({ query, top_k: topK }),
     });
   }
 
-  // Search endpoint returning full document details
-  async search(query: string, topK: number = 10): Promise<SearchResponse> {
+  /* 🔹 Search (now supports geo_summary automatically) */
+  async search(
+    query: string,
+    topK: number = 10
+  ): Promise<SearchResponse> {
     return this.request<SearchResponse>("/search", {
       method: "POST",
       body: JSON.stringify({ query, top_k: topK }),
     });
   }
 
-  // Chat endpoint with memory and context
+  /* 🔹 Chat */
   async chat(
     query: string,
     sessionId: string,
@@ -120,14 +146,19 @@ class ApiService {
     });
   }
 
-  // Clear conversation history for a session
-  async clearSession(sessionId: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(`/clear_session/${sessionId}`, {
-      method: "DELETE",
-    });
+  /* 🔹 Clear chat session */
+  async clearSession(
+    sessionId: string
+  ): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/clear_session/${sessionId}`,
+      {
+        method: "DELETE",
+      }
+    );
   }
 
-  // Health check
+  /* 🔹 Health check */
   async healthCheck(): Promise<HealthResponse> {
     return this.request<HealthResponse>("/health");
   }

@@ -22,17 +22,44 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ sessionId, onNewSession, onClearSession, initialQuery }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Hello! I'm your research assistant for the Reuters news archive. I can help you explore news articles, answer questions about specific events, and find connections across documents. What would you like to know?",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initialQueryProcessed = useRef(false);
+
+  // ✅ ADD: Load messages from localStorage on mount or when sessionId changes
+  useEffect(() => {
+    const savedMessages = localStorage.getItem(`chat_messages_${sessionId}`);
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        setMessages(parsed);
+      } catch (err) {
+        console.error("Failed to parse saved messages:", err);
+        // Fallback to welcome message
+        setMessages([{
+          id: "welcome",
+          role: "assistant",
+          content: "Hello! I'm your research assistant for the Reuters news archive. I can help you explore news articles, answer questions about specific events, and find connections across documents. What would you like to know?",
+        }]);
+      }
+    } else {
+      // No saved messages, show welcome
+      setMessages([{
+        id: "welcome",
+        role: "assistant",
+        content: "Hello! I'm your research assistant for the Reuters news archive. I can help you explore news articles, answer questions about specific events, and find connections across documents. What would you like to know?",
+      }]);
+    }
+  }, [sessionId]);
+
+  // ✅ ADD: Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, sessionId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,6 +119,10 @@ export function ChatInterface({ sessionId, onNewSession, onClearSession, initial
   const handleClearSession = async () => {
     try {
       await api.clearSession(sessionId);
+      
+      // ✅ MODIFIED: Clear localStorage when clearing session
+      localStorage.removeItem(`chat_messages_${sessionId}`);
+      
       setMessages([
         {
           id: "welcome",

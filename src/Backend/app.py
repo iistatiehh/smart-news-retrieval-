@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 import os
 
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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" # Replace with your actual Groq API key or load from env
 # Configuration
 ES_HOST = "http://localhost:9200"
 INDEX_NAME = "news_reuters_docs"

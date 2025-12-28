@@ -1,15 +1,16 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react"; // ✅ ADD useEffect here
+import { useNavigate, useSearchParams } from "react-router-dom"; // ✅ ADD useSearchParams
 import { Header } from "@/components/layout/Header";
 import { SearchBar } from "@/components/search/SearchBar";
 import { FilterPanel, FilterState } from "@/components/search/FilterPanel";
-import { GeoMap, GeoPoint } from "@/components/analytics/GeoMap"; // ✅ ADD THIS
+import { GeoMap, GeoPoint } from "@/components/analytics/GeoMap";
 import { Database, Zap, Globe, MessageSquare, ArrowRight, MapPin, Clock, FileText, Building, Users, Map as MapIcon } from "lucide-react"; // ✅ ADD Map icon
 import { Button } from "@/components/ui/button";
 import { api, SearchResponse, SearchDocument } from "@/lib/api";
 
 export default function Index() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams(); // ✅ ADD THIS
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -57,6 +58,12 @@ export default function Index() {
     
     return Array.from(locationMap.values());
   };
+  useEffect(() => {
+    const queryFromUrl = searchParams.get('q');
+    if (queryFromUrl && !searchResult) {
+      handleSearch(queryFromUrl);
+    }
+  }, [searchParams]); // Only run when URL changes
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
@@ -64,6 +71,7 @@ export default function Index() {
     setError(null);
     setSearchResult(null);
     setShowMap(false); // ✅ ADD THIS: Reset map visibility on new search
+    setSearchParams({ q: query });
 
     try {
       let enhancedQuery = query;
